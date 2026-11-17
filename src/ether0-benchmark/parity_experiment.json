@@ -9,7 +9,9 @@
     "number_of_runs": null,
     "notes": "Parity experiments pending; to be filled after the runs agreed with the Harbor team.",
     "original_parity_repo": null,
-    "adapter_pr": [],
+    "adapter_pr": [
+      "https://github.com/harbor-index/adapters/pull/13"
+    ],
     "dataset_pr": [],
     "parity_pr": [],
     "metrics": [
