@@ -17,7 +17,8 @@ graded deterministically with RDKit-based reward functions, with no LLM judge.
   and they are excluded (see [Notes & Caveats](#notes--caveats)).
 - **Main adaptation**: the agent receives exactly the prompt of ether0's published baseline (ether0's
   answer-format instruction followed by the problem text), plus one sentence asking it to write the final
-  response to `/app/answer.txt`. The verifier scores that file with ether0's own reward code.
+  response to `/app/answer.txt`. A separate verifier container scores that file with ether0's own
+  reward code.
 
 | Category | ether0 reward function | Tasks |
 |----------|------------------------|-------|
@@ -59,21 +60,22 @@ The benchmark's metric is accuracy, the mean of the binary per-problem rewards.
   `extract_answer_loose` on the response, then
   `EVAL_FUNCTIONS[fxn_name](yhat=..., y=answer_info, test=True)`. The reward is 1.0 or 0.0 and is written
   to `/logs/verifier/reward.txt`.
-- **Locked verifier dependencies**: at verification time, `tests/test.sh` creates an isolated virtualenv
-  and installs ether0 (pinned commit) plus the 66 runtime packages from ether0's `uv.lock`, including
-  RDKit 2025.3.2.
-  - The install uses a pinned `uv` (0.9.5, run with `--no-config`); it takes about 20 s, versus several
-    minutes with pip, and installs identical versions.
+- **Separate verifier with locked dependencies**: grading runs in Harbor's separate verifier
+  environment, built from `tests/Dockerfile`.
+  - The image installs ether0 (pinned commit) plus the 66 runtime packages from ether0's `uv.lock`,
+    including RDKit 2025.3.2, at build time with a pinned `uv` (0.9.5, run with `--no-config`). Grading
+    itself needs no network access.
+  - Only `/app/answer.txt` is passed in from the agent's environment. It is declared as a task
+    artifact, so it is also saved with every trial and trials can be regraded.
   - Graders and reference answers are never present in the agent's environment.
 - **Clean agent environment**: the task image is `python:3.11-slim` plus `git`, `curl` and two system
   libraries RDKit needs at import time. No chemistry toolkit is pre-installed for the agent.
 - **Oracle**: `solution/solve.sh` writes the dataset's reference answer in ether0's answer format. The
   reference is `answer_info` for exact-match problems and the dataset's `ideal` molecule for constraint
   problems.
-- **Optional prebuilt image / local wheelhouse**: `--docker-image` writes `[environment].docker_image`
-  into every task, so all tasks share one image built from the template Dockerfile. The
-  `ETHER0_VERIFIER_WHEELHOUSE` verifier variable makes `test.sh` install the same pinned wheels from a
-  local wheelhouse instead of PyPI/GitHub. Both are off by default.
+- **Optional prebuilt agent image**: `--docker-image` writes `[environment].docker_image` into every
+  task, so all tasks share one agent image built from the template Dockerfile. It is off by default.
+  The verifier image is always built from `tests/Dockerfile`.
 - No custom agents were added; standard Harbor agents are used.
 
 ## Generated Task Structure
@@ -88,7 +90,8 @@ ether0-benchmark/
 │   ├── solution/
 │   │   └── solve.sh              # oracle: writes <answer>reference</answer> to /app/answer.txt
 │   └── tests/
-│       ├── test.sh               # installs pinned verifier deps, runs grade.py
+│       ├── Dockerfile            # separate verifier image: ether0 + locked deps pre-installed
+│       ├── test.sh               # runs grade.py in the verifier image
 │       ├── grade.py              # scores /app/answer.txt with ether0's reward function
 │       ├── config.json           # the problem's ether0 `solution` spec (reward fn, answer info, type)
 │       └── requirements-verifier.txt  # ether0's locked runtime dependencies
@@ -112,7 +115,7 @@ src/ether0-benchmark/
         ├── instruction.md
         ├── environment/Dockerfile
         ├── solution/solve.sh
-        └── tests/{test.sh, grade.py, requirements-verifier.txt}
+        └── tests/{Dockerfile, test.sh, grade.py, requirements-verifier.txt}
 ```
 
 ## Run Evaluation / Harness
@@ -174,26 +177,52 @@ Available flags:
 
 ## Comparison with Original Benchmark (Parity)
 
-Parity experiments are **pending**. The plan follows the gpqa-diamond adapter:
-- Fork `Future-House/ether0` and add a runner that gives a CLI agent the same `instruction.md` text, then
-  grades `/app/answer.txt` with the same reward code.
-- Run the same agent and model on that original-side runner and on this adapter, using all 250 tasks.
-- Report accuracy as mean ± sample SEM over at least two runs per side; three runs are planned.
-
-The agent, model and number of runs will be finalized with the Harbor team, and results will be
-recorded in `parity_experiment.json`.
+Parity was run on all 250 adapted tasks, three runs per side, with the same agent, model, container
+image and prompt on both sides. Accuracy is the percentage of tasks with reward 1, reported as
+mean ± sample SEM over runs.
 
 | Agent | Model | Metric | Number of Runs | Dataset Size | Original Benchmark Performance | Harbor Adapter Performance |
 |-------|-------|--------|------------------|--------------|------------------------------|----------------------------|
-| TBD | TBD | Accuracy | TBD | 250 (100% of adapted set) | TBD | TBD |
+| codex@0.166.0 | gpt-5-mini | Accuracy (%) | 3 | 250 (100% of adapted set) | 39.07 ± 0.74 | 39.73 ± 0.27 |
 
-Reproduction:
-- **Original side**: the fork, commit and command will be added with the parity results.
-- **Harbor side**:
-  ```bash
-  harbor run -c src/ether0-benchmark/run_ether0-benchmark.yaml -a <agent> -m "<model>"
-  ```
-- **Metric**: accuracy = mean of the per-task rewards (each 0 or 1).
+- Per-run accuracy (%): original 40.0 / 37.6 / 39.6; Harbor 40.0 / 39.2 / 40.0. The run-score ranges overlap, so the two sides match.
+- Codex ran with reasoning effort `medium` on both sides.
+- Trials that failed for infrastructure reasons (API or network errors) were rerun with identical settings, so every run is scored on all 250 tasks.
+- The parity runs used the adapter's earlier shared-verifier layout. After the switch to the separate
+  verifier, all 1,500 parity submissions (3 runs x 250 tasks x 2 sides) were regraded with it on
+  Harbor 0.27.0, and every reward was identical. The earlier layout did not save the Harbor-side
+  answer files, so they were rebuilt offline by replaying each agent's logged write commands.
+
+Links:
+- Original benchmark: [Future-House/ether0](https://github.com/Future-House/ether0) and
+  [futurehouse/ether0-benchmark](https://huggingface.co/datasets/futurehouse/ether0-benchmark)
+- Original-side parity fork: [Lloyd-Jahn/ether0 @ harbor-parity](https://github.com/Lloyd-Jahn/ether0/tree/harbor-parity)
+- Adapter PR: [harbor-index/adapters#13](https://github.com/harbor-index/adapters/pull/13)
+- Dataset PR: to be added
+- Parity results on Hugging Face: to be added
+
+**Reproduction** (export `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for an OpenAI-compatible endpoint, on
+both sides; repeat each run command for runs 2 and 3):
+
+1. Original side, from the fork's `harbor_parity/` directory (details in its README):
+   ```bash
+   git clone -b harbor-parity https://github.com/Lloyd-Jahn/ether0 && cd ether0 && uv sync
+   docker build -t ether0-parity-env:latest harbor_parity/environment
+   docker build --build-arg BASE_IMAGE=ether0-parity-env:latest --build-arg CODEX_VERSION=0.166.0 \
+     -f harbor_parity/environment/Dockerfile.codex -t ether0-parity-codex:0.166.0 harbor_parity/environment
+   cd harbor_parity
+   uv run python run_parity.py --run-name original-run-1 --runtime docker \
+     --image ether0-parity-codex:0.166.0 --model gpt-5-mini --codex-version 0.166.0 \
+     --reasoning-effort medium --n-concurrent 6 --results-dir results
+   ```
+2. Harbor side, from this repository (same image):
+   ```bash
+   cd src/ether0-benchmark
+   uv run ether0-benchmark --output-dir ../../datasets/ether0-benchmark --docker-image ether0-parity-codex:0.166.0
+   cd ../..
+   harbor run -p datasets/ether0-benchmark -a codex --ak version=0.166.0 --ak reasoning_effort=medium \
+     -m openai/gpt-5-mini -n 6
+   ```
 
 ## Notes & Caveats
 
@@ -201,14 +230,16 @@ Reproduction:
   and retro-synthesis (`rxn_forward`) problems do not include a reference answer in the released dataset,
   so the oracle-100% requirement cannot be met for them. The latter two types are also scored through
   ether0's model-based remote reward server.
+- **Benchmark bugs.** None found in the 250 adapted problems: every reference answer scores 1.0
+  with ether0's reward code (oracle 250/250 on Harbor 0.27.0).
 - **Prompt modification.** The only change to ether0's baseline prompt is the final sentence asking the
   agent to write its response to `/app/answer.txt`. Parity runs apply the same text on both sides.
 - **Tools.** ether0's baseline is a single LLM call without tools. Harbor agents run in a container with
   shell access and network access, so they may install packages (e.g. RDKit) themselves. The image does
   not pre-install chemistry toolkits. Parity runs give both sides the same agent and environment.
-- **Verifier network access.** `tests/test.sh` downloads about 200 MB of pinned wheels from PyPI and
-  ether0 from GitHub on every verification. Verification typically takes about one minute per trial.
-  Set `ETHER0_VERIFIER_WHEELHOUSE` (via `--ve`) to a local wheelhouse for repeated or offline runs.
+- **Verifier image build.** Building `tests/Dockerfile` downloads about 200 MB of pinned wheels from
+  PyPI and ether0 from GitHub. All layers except the final copy of the task's test files are identical
+  across tasks, so the container runtime's build cache reuses them after the first task.
 - **Pinned RDKit.** Molecule canonicalization can differ between RDKit releases, so the verifier uses
   ether0's locked RDKit 2025.3.2 rather than the latest release.
 - **Reward-function exceptions.** If a reward function raises on a malformed answer, the task scores 0.
@@ -216,7 +247,9 @@ Reproduction:
 - **Dockerfile notes.**
   - `APT::Sandbox::User "root"` lets `apt` work in user-namespace runtimes such as rootless Podman with a
     single UID mapping.
-  - `libxrender1` and `libxext6` are required by RDKit's wheels at import time.
+  - `libxrender1` and `libxext6` are required by RDKit's wheels at import time. The verifier image needs
+    them for grading. The agent image keeps them, as in the parity runs, in case the agent installs
+    RDKit itself.
   - Neither affects scoring.
 
 ## Installation / Prerequisites
@@ -228,19 +261,17 @@ Reproduction:
   cd src/ether0-benchmark
   uv sync
   ```
-- Network access to Hugging Face (task generation), and to PyPI and GitHub from task containers
-  (verification), unless a local wheelhouse is configured.
+- Network access to Hugging Face (task generation), and to PyPI and GitHub when the verifier image is
+  built.
 - API keys for the agent/model you evaluate, exported as environment variables.
 
 ## Troubleshooting
 
 - **Reward 0 with `ImportError: libXrender.so.1`**: the image is missing RDKit's system libraries; rebuild
   from the template Dockerfile (it installs `libxrender1` and `libxext6`).
-- **Verifier times out or fails during `pip install`**: the container cannot reach PyPI/GitHub. Check
-  proxy settings (pass them with `--ve`), or set `ETHER0_VERIFIER_WHEELHOUSE` to a wheelhouse holding:
-  - the wheels in `requirements-verifier.txt`;
-  - `uv==0.9.5`;
-  - an ether0 wheel built from the pinned commit.
+- **Verifier environment fails to start (image build error or timeout)**: the image build cannot reach
+  PyPI/GitHub. Configure your container runtime's build proxy, then rerun. Once one build succeeds, the
+  build cache serves the shared layers to the other tasks.
 - **Image build fails at `apt-get` under rootless runtimes**: keep the `APT::Sandbox::User` line in the
   Dockerfile.
 - **Slow per-task image builds**: build the template Dockerfile once and regenerate tasks with
@@ -267,3 +298,7 @@ Harbor-Index v2.0 effort.
 **Issues and Contributions:**
 - Submit issues and pull requests to the main repository
 - Follow the project's coding style and commit guidelines
+
+## Acknowledgement
+
+API inference compute for running parity tests is generously supported by [2077AI](https://www.2077ai.com/) (https://www.2077ai.com/).

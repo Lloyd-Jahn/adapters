@@ -2,6 +2,10 @@
 
 schema_version = "1.0"
 
+# The agent's final response. It is copied into the separate verifier
+# container and kept with the trial results, so trials can be regraded.
+artifacts = ["/app/answer.txt"]
+
 [task]
 name = "futurehouse/ether0-benchmark__{{TASK_ID}}"
 # Authors of "Training a Scientific Reasoning Model for Chemistry" (arXiv:2506.17238),
@@ -26,9 +30,10 @@ problem_type = {{PROBLEM_TYPE}}
 upstream_id = {{UPSTREAM_ID}}
 
 [verifier]
-# The verifier installs ether0's reward code and locked dependencies before scoring.
-network_mode = "public"
-timeout_sec = 900.0
+# Grading runs in a separate container built from tests/Dockerfile, with ether0's
+# reward code and locked dependencies pre-installed; it needs no network access.
+environment_mode = "separate"
+timeout_sec = 300.0
 
 [agent]
 network_mode = "public"
