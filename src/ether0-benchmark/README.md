@@ -198,8 +198,10 @@ Links:
   [futurehouse/ether0-benchmark](https://huggingface.co/datasets/futurehouse/ether0-benchmark)
 - Original-side parity fork: [Lloyd-Jahn/ether0 @ harbor-parity](https://github.com/Lloyd-Jahn/ether0/tree/harbor-parity)
 - Adapter PR: [harbor-index/adapters#13](https://github.com/harbor-index/adapters/pull/13)
-- Dataset PR: to be added
-- Parity results on Hugging Face: to be added
+- Dataset PR: [harbor-framework/harbor-datasets#289](https://github.com/harbor-framework/harbor-datasets/pull/289)
+- Parity results on Hugging Face: [harborframework/parity-experiments#295](https://huggingface.co/datasets/harborframework/parity-experiments/discussions/295). That repository is
+  over the Hub's file limit, so the files are mirrored at
+  [Lloyd-Jahn/ether0-benchmark-parity-experiments](https://huggingface.co/datasets/Lloyd-Jahn/ether0-benchmark-parity-experiments/tree/44a88746852635c6f86440610618b8d4ac9dc263/adapters/ether0-benchmark) for now.
 
 **Reproduction** (export `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for an OpenAI-compatible endpoint, on
 both sides; repeat each run command for runs 2 and 3):
