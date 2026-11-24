@@ -68,7 +68,10 @@ def main() -> None:
         docker_image=args.docker_image,
     )
 
-    adapter.run()
+    try:
+        adapter.run()
+    except (RuntimeError, ValueError) as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
 
 if __name__ == "__main__":

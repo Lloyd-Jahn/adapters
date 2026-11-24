@@ -186,7 +186,9 @@ mean ± sample SEM over runs.
 | codex@0.166.0 | gpt-5-mini | Accuracy (%) | 3 | 250 (100% of adapted set) | 39.07 ± 0.74 | 39.73 ± 0.27 |
 
 - Per-run accuracy (%): original 40.0 / 37.6 / 39.6; Harbor 40.0 / 39.2 / 40.0. The run-score ranges overlap, so the two sides match.
-- Codex ran with reasoning effort `medium` on both sides.
+- Codex ran with reasoning effort `medium` on both sides. The Harbor side ran on Harbor 0.26.0.
+- The model is the `gpt-5-mini` alias, because the 2077AI endpoint used for parity offers no dated
+  snapshot. Both sides used the same endpoint, and the two sides of each run ran concurrently.
 - Trials that failed for infrastructure reasons (API or network errors) were rerun with identical settings, so every run is scored on all 250 tasks.
 - The parity runs used the adapter's earlier shared-verifier layout. After the switch to the separate
   verifier, all 1,500 parity submissions (3 runs x 250 tasks x 2 sides) were regraded with it on
@@ -231,7 +233,8 @@ both sides; repeat each run command for runs 2 and 3):
 - **Excluded problems (75 of 325).** molecule-completion (`valid_mol_eval`), oracle-solubility (`sol_eval`)
   and retro-synthesis (`rxn_forward`) problems do not include a reference answer in the released dataset,
   so the oracle-100% requirement cannot be met for them. The latter two types are also scored through
-  ether0's model-based remote reward server.
+  ether0's model-based remote reward server. This 250-task scope was agreed with the Harbor team
+  before the adapter was built.
 - **Benchmark bugs.** None found in the 250 adapted problems: every reference answer scores 1.0
   with ether0's reward code (oracle 250/250 on Harbor 0.27.0).
 - **Prompt modification.** The only change to ether0's baseline prompt is the final sentence asking the

@@ -3,10 +3,10 @@
 Each upstream problem becomes one Harbor task. The agent receives ether0's
 official answer-format instruction followed by the problem text (the same
 prompt construction as ether0's published baseline) and writes its final
-response to ``/app/answer.txt``. The verifier scores that response with
-ether0's own reward code (``extract_answer_loose`` + ``EVAL_FUNCTIONS`` with
-``test=True``), installed at verification time with ether0's locked
-dependency versions.
+response to ``/app/answer.txt``. A separate verifier container scores that
+response with ether0's own reward code (``extract_answer_loose`` +
+``EVAL_FUNCTIONS`` with ``test=True``), pre-installed in the verifier image
+with ether0's locked dependency versions.
 
 Only problems whose reference answer ships with the dataset are adapted; see
 ``ADAPTED_REWARD_FUNCTIONS``. The README documents the excluded problems.
@@ -75,15 +75,24 @@ def _toml_string(value: str) -> str:
 def load_problems(parquet_path: Path | None = None) -> list[Ether0Problem]:
     """Load the pinned test split and keep the problems with shipped references."""
     if parquet_path is None:
-        parquet_path = Path(
-            hf_hub_download(
-                repo_id=HF_REPO_ID,
-                filename=HF_PARQUET,
-                repo_type="dataset",
-                revision=HF_REVISION,
+        try:
+            parquet_path = Path(
+                hf_hub_download(
+                    repo_id=HF_REPO_ID,
+                    filename=HF_PARQUET,
+                    repo_type="dataset",
+                    revision=HF_REVISION,
+                )
             )
-        )
-    rows = pq.read_table(parquet_path).to_pylist()
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not download {HF_PARQUET} from {HF_REPO_ID}@{HF_REVISION}: {exc}. "
+                "Check access to Hugging Face, or pass --parquet-path."
+            ) from exc
+    try:
+        rows = pq.read_table(parquet_path).to_pylist()
+    except (OSError, ValueError) as exc:  # pyarrow raises ArrowInvalid, a ValueError
+        raise RuntimeError(f"Could not read the test split from {parquet_path}: {exc}") from exc
     problems: list[Ether0Problem] = []
     for row in rows:
         reward_function, answer_info, problem_type = row["solution"].split(
@@ -122,7 +131,6 @@ class Ether0BenchmarkAdapter:
         task_ids: list[str] | None = None,
         parquet_path: Path | None = None,
         docker_image: str | None = None,
-        **kwargs,
     ):
         self.output_dir = Path(output_dir)
         self.limit = limit
